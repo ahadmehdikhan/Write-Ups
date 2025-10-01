@@ -1,0 +1,296 @@
+Labs with solution
+
+1. Path traversal (directory traversal)
+
+What it is (short): attackers manipulate file path input (e.g., file=../../etc/passwd) to read files outside the web root, exposing configs, secrets, or credentials. 
+
+
+Typical PortSwigger lab objective: craft a request that changes a filename parameter to retrieve /etc/passwd or other protected files. Labs range from simple ../ cases to filters / canonicalization bypasses. 
+
+
+How labs are solved (steps):
+
+Identify an input that accepts a filename (query param, upload path, image loader).
+
+Try ../ sequences (e.g., ../../../../etc/passwd) and URL-encoded variants (%2e%2e%2f).
+
+If blocked, try unicode/encoding bypasses, absolute path tricks, or null byte/alternate encodings.
+
+Capture the response — if you see file contents, record the PoC. 
+
+
+PoC sketch: GET /view?file=../../../../etc/passwd → server returns passwd contents. Include exact request + redacted response in repo. (Short script: simple Python requests to submit crafted filename.) 
+portswigger.net
+
+Remediation (dev):
+
+Canonicalize and normalise paths server-side and reject anything that escapes intended directories.
+
+Map user-supplied “file IDs” to server paths (don’t accept raw filenames).
+
+Run app with least privileges; keep sensitive files outside web root. 
+
+Detection / testing tips: try path traversal payload lists (raw ../, encoded forms, double-encoded, alternative separators), and enumerate all inputs that reference files. Automate with a fuzzer for file path vectors. 
+
+
+Impact: arbitrary file read → credentials, keys, source code leak; if write is possible, can lead to code execution or persistent backdoors.
+
+
+TL;DR lab note : low complexity, high impact. Demonstrate read of /etc/passwd (or similar). Show request/response and recommended allowlist-based remediation.
+
+
+2. Access control (broken access control / privilege escalation)
+
+What it is: users can access resources or actions beyond their permission level (vertical/horizontal privilege escalation). These flaws let non-admins do admin actions or access other users’ data.
+
+Typical PortSwigger lab objective: bypass method-based, parameter-based, or cookie-based checks to promote your user to admin or access the admin panel. 
+
+
+
+How labs are solved (steps):
+
+Map the app’s authorization model (roles, endpoints requiring admin).
+
+Try switching HTTP methods (POST→GET), tampering role parameters, manipulating cookies/session tokens, or using IDOR-style changes to resource IDs.
+
+Use Burp to replay and alter requests until you access protected functionality. 
+
+
+
+PoC sketch: change role=user → role=admin in a cookie or request body; or send GET /admin/delete?user=carlos when only POST should work — if accepted, record the proof. Include before/after screenshots. 
+
+
+Remediation (dev):
+
+Enforce server-side authorization checks on every request (don’t rely on client or method).
+
+Use role checks tied to session identity; avoid using client-controllable fields to decide privileges.
+
+Test with automated authorization test suites and denial-by-default rules. 
+
+
+Detection / testing tips: enumerate endpoints, try tampering with IDs & methods, test horizontal/vertical escalation, try forced browsing to hidden URLs. Include test cases for method-based and parameter-based control bypass. 
+
+
+Impact: immediate data exposure, account takeover, ability to perform destructive admin actions; often a gateway to full compromise. 
+
+
+TL;DR lab note: show privilege escalation (become admin) by tampering a cookie/param or method. Emphasize server-side enforcement in mitigation.
+
+3. Authentication weaknesses
+
+What it is: flaws in verifying identity — weak login flow, predictable reset tokens, missing rate limits, or broken MFA implementations. These can allow brute force, login bypass, or account takeover. 
+
+
+Typical PortSwigger lab objective: exploit weak authentication to bypass login (SQLi on login, weak password reset, or brute force allowed). 
+
+
+How labs are solved (steps):
+
+Identify auth endpoints (login, reset, token generation).
+
+Test for common issues: SQL injection in username/password fields, missing rate limits, enumable responses for username existence, or insecurely encoded tokens.
+
+If SQLi present, craft payload to bypass login or extract credentials. 
+
+
+PoC sketch: POST /login with username=administrator'-- to bypass authentication (example SQLi login bypass). Include exact request and explanation. 
+
+
+Remediation (dev):
+
+Use parameterised queries / prepared statements; enforce rate limiting and account lockout; implement proper MFA and secure reset token generation.
+
+Use constant-time comparisons and avoid username enumeration. 
+
+Detection / testing tips: test login for SQLi, check password reset flows for predictable tokens, try automated credential stuffing or Weak-password detection. 
+
+
+Impact: account takeover, unauthorized access to sensitive functions or data, lateral movement. 
+
+
+TL;DR lab note: show login bypass or account compromise; include mitigation steps (prepared statements, MFA, rate limits).
+
+4. Server-side request forgery (SSRF)
+
+What it is: the app is tricked into making HTTP requests to URLs controlled by the attacker or internal services (e.g., http://169.254.169.254 for cloud metadata). SSRF is now a top API risk. 
+
+
+
+Typical PortSwigger lab objective: use a stock check or URL fetch feature to access internal addresses (localhost or internal 192.168.x.x) and accomplish a task like deleting a user. 
+
+
+
+How labs are solved (steps):
+
+Find an input that the server treats as a URL to fetch.
+
+Replace the target with http://localhost:8080/admin or a cloud metadata endpoint.
+
+If direct fetch blocked, try alternate IP encodings, redirect chains, or exploiting SSRF via XXE. 
+
+
+PoC sketch: change stock check URL to http://127.0.0.1:8080/admin/delete?user=carlos and trigger the functionality; show server-side effect. Emphasize cloud metadata theft (if present) as high severity. 
+
+
+
+Remediation (dev):
+
+Block internal IP ranges for user-supplied URLs; implement strict allowlists for external domains; enforce hostname validation and DNS resolution checks.
+
+Where possible, avoid fetching arbitrary user-supplied URLs. Use a proxy with filtering or a queue with manual verification. 
+
+
+Detection / testing tips: scan internal ranges using SSRF, try metadata endpoints, test for redirect-based SSRF, and include OOB detection for blind SSRF. 
+
+
+
+Impact: internal service access, credential theft (cloud metadata), server pivoting — can lead to full infrastructure compromise. 
+
+
+TL;DR lab note: show SSRF to internal service or metadata endpoint; recommend allowlists and blocking internal ranges. 
+
+
+#5. File upload vulnerabilities
+
+What it is: insecure handling of uploaded files lets attackers upload web shells, scripts, or poison application logic — leading to RCE or persistent compromise. 
+
+
+Typical PortSwigger lab objective: upload a crafted file (e.g., PHP web shell or disguised extension) and execute it to achieve RCE / command execution. 
+
+
+How labs are solved (steps):
+
+Find an upload feature (avatar, attachment).
+
+Bypass client-side/type checks by modifying Content-Type, extension, or content (e.g., image.jpg containing <?php ... ?>).
+
+Upload, then access the uploaded file to get code execution or read server response. 
+
+
+PoC sketch: upload shell.php renamed shell.php.jpg and try to access /uploads/shell.php.jpg (if the server executes based on content type or filename). Minimal PoC scripts can craft multipart uploads. 
+
+
+Remediation (dev):
+
+Validate file types server-side using magic bytes, store uploads outside the web root, rename files, and forbid execution permissions on upload folders.
+
+Use content scanning, size limits, and strong allowlists (instead of blacklists). 
+
+
+Detection / testing tips: test by uploading different extensions, change headers, attempt to upload polyglot files, and try direct access to stored files. 
+
+
+Impact: remote code execution, persistent backdoors, data exfiltration. High severity when upload allows execution. 
+
+
+TL;DR lab note: show an upload → execute flow (or upload that reveals server info). Emphasize storing uploads outside webroot and strict server-side validation. 
+
+
+6. OS command injection (shell injection)
+
+What it is: user input is passed to OS command execution without neutralization, allowing arbitrary commands to run on server. Full server compromise is common. 
+
+
+Typical PortSwigger lab objective: inject ; whoami or chaining operators into an OS-invoking parameter (stock checker, ping function) to get command output or cause side effects. 
+
+
+How labs are solved (steps):
+
+Find an app function that runs OS commands with user input (e.g., ping, traceroute, stock check).
+
+Inject command separators (;, &&) or use blind techniques (time delays) for blind injection.
+
+Capture output or measure timing for blind scenarios. 
+
+
+PoC sketch: GET /stock?product=1;whoami and show response contains www-data or other user; for blind: inject ; sleep 10 and observe delayed response. 
+
+
+
+Remediation (dev):
+
+Avoid shelling out with user input. If needed, use safe APIs that separate arguments (no shell interpolation), validate/allowlist inputs, and drop privileges.
+
+Use least-privilege service accounts and disable unnecessary shell access. 
+
+
+Detection / testing tips: test with typical separators and timing attacks; use OOB when output isn’t returned. 
+
+
+Impact: complete server compromise, data theft, pivoting to internal systems. 
+
+
+TL;DR lab note: demonstrate whoami or sleep technique; recommend safe APIs and argument isolation. 
+
+
+7. SQL Injection (SQLi)
+
+What it is: attacker injects SQL into queries built from user input, enabling data extraction, modification, or DB operations. Classic and high-impact. 
+
+
+
+Typical PortSwigger lab objective: exploit SQLi to bypass login, extract hidden data, or list DB contents via error or blind techniques. Labs include login bypass, retrieve hidden rows, blind boolean/conditional, and time-based. 
+
+
+
+How labs are solved (steps):
+
+Identify input used in SQL queries (filters, login fields).
+
+Test with ' OR '1'='1 style payloads, comment out rest of query ('--) or use union/stacked queries depending on DB.
+
+For blind SQLi, use boolean/time-based payloads to extract data bit-by-bit. 
+
+
+
+PoC sketch: login bypass: username=administrator'-- in a login POST to get in as admin; or boolean blind to extract characters using SUBSTRING and conditional responses. 
+
+
+Remediation (dev):
+
+Use parameterised queries / prepared statements, ORMs properly, and strong input validation/escaping. Limit DB privileges and use WAFs for extra protection. 
+
+
+Detection / testing tips: test all inputs, use automated scanners, try both error-based and blind approaches; check DB errors in responses and time-based anomalies. 
+
+
+Impact: data theft, data manipulation, potential RCE via DB functions — critical severity. 
+
+
+TL;DR lab note: show login bypass or data retrieval. Emphasize prepared statements and least-privilege DB roles. 
+
+
+8. Insecure Deserialization
+
+What it is: the application deserializes attacker-controlled data into objects and executes code paths (or dangerous methods) leading to RCE, state changes, or privilege escalation. 
+
+
+Typical PortSwigger lab objective: edit serialized object in cookie/session to trigger an operation (delete file or escalate privileges). Labs show using built-in gadget chains or application functions to exploit. 
+
+
+
+How labs are solved (steps):
+
+Identify serialized blobs (cookies, session tokens).
+
+Modify object fields (e.g., set isAdmin=true) or inject payloads that cause the app to call a dangerous method.
+
+If languages support gadget chains (Java/PHP/Ruby), use tools to craft payloads. 
+
+
+PoC sketch: modify serialized session cookie to set user.role=admin and show admin-only page accessible; or craft a payload that calls File.delete() to remove a file. Include exact cookie value changes and before/after. 
+
+
+Remediation (dev):
+
+Avoid deserializing untrusted data. Use safe formats (JSON) and explicit parsing, versioned schemas, or allowlists; use deserialization libraries without remote gadget chains. Validate objects after deserialization. 
+
+
+Detection / testing tips: look for serialized cookies, test tampering of object fields, and try common gadget chains with existing tools. 
+
+
+Impact: RCE, privilege escalation, data corruption — very high severity when exploitable. 
+
+
+TL;DR lab note: edit serialized session to perform action (delete file / become admin). Recommend disallowing untrusted deserialization and using safer formats.
