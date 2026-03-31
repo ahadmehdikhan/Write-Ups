@@ -87,7 +87,3 @@ All PoCs and testing were performed on PortSwigger labs. Do not run PoCs against
 
 ---
 
-## Contact
-- LinkedIn: <your-linkedin>  
-- X: <your-x>  
-- Email: <your-email>
